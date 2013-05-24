@@ -64,6 +64,7 @@ end
 node.normal['zabbix']['server']['configure_options'] = configure_options
 
 zabbix_source "install_zabbix_server" do
+  source_url          node['zabbix']['server']['source_url']
   branch              node['zabbix']['server']['branch']
   version             node['zabbix']['server']['version']
   code_dir            node['zabbix']['src_dir']
