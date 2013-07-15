@@ -7,32 +7,6 @@
 # Apache 2.0
 #
 
-# Create zabbix group
-group node['zabbix']['login'] do
-  gid node['zabbix']['gid']
-  if node['zabbix']['gid'].nil? 
-    action :nothing
-  else
-    action :create
-  end
-end
-
-
-directory node['zabbix']['install_dir'] do
-  mode       "0755"
-  recursive  true
-  action     :create
-end
-
-# Create zabbix User
-user node['zabbix']['login'] do
-  comment "zabbix User"
-  home node['zabbix']['install_dir']
-  shell node['zabbix']['shell']
-  uid node['zabbix']['uid']
-  gid node['zabbix']['gid'] 
-end
-
 # Define root owned folders
 root_dirs = [
   node['zabbix']['etc_dir'],
@@ -69,11 +43,11 @@ zabbix_dirs.each do |dir|
 end
 
 unless node['zabbix']['agent']['source_url']
-  node.set['zabbix']['agent']['source_url'] = Chef::Zabbix.default_download_url(node['zabbix']['agent']['branch'], node['zabbix']['agent']['version'])
+  node.default['zabbix']['agent']['source_url'] = Chef::Zabbix.default_download_url(node['zabbix']['agent']['branch'], node['zabbix']['agent']['version'])
 end
 
 unless node['zabbix']['server']['source_url']
-  node.set['zabbix']['server']['source_url'] = Chef::Zabbix.default_download_url(node['zabbix']['server']['branch'], node['zabbix']['server']['version'])
+  node.default['zabbix']['server']['source_url'] = Chef::Zabbix.default_download_url(node['zabbix']['server']['branch'], node['zabbix']['server']['version'])
 end
 
 

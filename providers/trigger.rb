@@ -15,40 +15,31 @@ action :create do
       # 
       # The description on the lwrp becomes comments in the api
 
-      template_ids = Zabbix::API.find_template_ids(connection, new_resource.template)
-      application_ids = Zabbix::API.find_application_ids(connection, new_resource.application, template_ids.first['templateid'])
-
-      get_trigger_request = {
-        :method => "trigger.get",
-        :params => {
-          :filter => {
-            :hostid => template_ids.first['templateid'],
-            :description => new_resource.name
-          }
-
-        }
-      }
-      trigger_ids = connection.query(get_trigger_request)
-
-
       params = {
         # For whatever reason triggers have a description and comments
         # instead of a name and description...
         :description => new_resource.name,
         :comments => new_resource.description,
         :expression => new_resource.expression,
-        :priority => new_resource.priority.value, #possibly -1?
+        :priority => new_resource.priority.value, 
         :status => new_resource.status.value,
-        :hostid => template_ids.first['hostid'],
-        :applications => application_ids.map { |app_id| app_id['applicationid'] }
       }
-      method = "trigger.create"
+
+      noun = (new_resource.prototype) ? 'triggerprototype' : 'trigger'
+      verb = 'create'
+
+      if new_resource.prototype
+        trigger_ids = Zabbix::API.find_trigger_prototype_ids(connection, new_resource.name)
+      else
+        trigger_ids = Zabbix::API.find_trigger_ids(connection, new_resource.name)
+      end
 
       unless trigger_ids.empty?
-        # Send the update request to the server
+        verb = 'update'
         params[:triggerid] = trigger_ids.first['triggerid']
-        method = 'trigger.update'
       end
+
+      method = "#{noun}.#{verb}"
       connection.query(:method => method,
                        :params => params)
     end

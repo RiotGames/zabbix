@@ -8,7 +8,9 @@ class Chef
         extend Forwardable
         def_delegators :@options, :[], :[]=, :delete
         def initialize(options)
-          Chef::Application.fatal! ":item_template is required" if options[:item_template].to_s.empty?
+          if options[:item_template].to_s.empty? && options[:host].to_s.empty?
+            Chef::Application.fatal! ":item_template or :host is required"
+          end
           Chef::Application.fatal! ":item_key is required" if options[:item_key].to_s.empty?
           Chef::Application.fatal! ":calc_function must be a Zabbix::API::GraphItemCalcFunction" unless options[:calc_function].kind_of?(GraphItemCalcFunction)
           Chef::Application.fatal! ":type must be a Zabbix::API::GraphItemType" unless options[:type].kind_of?(GraphItemType)
@@ -29,7 +31,76 @@ class Chef
         end
       end
 
+      class HostInterface
+
+        class << self
+          def from_api_response(options)
+            options["type"] = Zabbix::API::HostInterfaceType.enumeration_values.detect { |value| value[1].value == options["type"].to_i }[1]
+            options["main"] = (options["main"].to_i == 1)
+            options["useip"] = (options["useip"].to_i == 1)
+            new(options)
+          end
+        end
+
+        attr_reader :options
+
+        extend Forwardable
+        def_delegators :@options, :[], :[]=, :delete
+        def initialize(options)
+          options = symbolize(options)
+          if options[:type].is_a?(Fixnum)
+          end
+          validate!(options)
+          @options = options
+        end
+
+        def to_hash
+          {
+            :dns => @options[:dns].to_s,
+            :ip => @options[:ip].to_s,
+            :useip => (@options[:useip]) ? 1 : 0,
+            :main => (@options[:main]) ? 1 : 0,
+            :port => @options[:port].to_s,
+            :type => @options[:type].value
+          }
+        end
+
+        def ==(other)
+          this = self.to_hash
+          this[:main]    == other[:main].to_i &&
+            this[:useip] == other[:useip].to_i &&
+            this[:ip]    == other[:ip].to_s &&
+            this[:dns]   == other[:dns].to_s &&
+            this[:port]  == other[:port].to_s &&
+            this[:type]  == other[:type].to_i
+        end
+
+        private 
+          def validate!(options)
+            options = symbolize(options)
+            Chef::Application.fatal!(":main must be one of [true, false]") unless [true, false].include?(options[:main])
+            Chef::Application.fatal!(":useip must be one of [true, false]") unless [true, false].include?(options[:useip])
+            if options[:useip]
+              search = :ip
+            else
+              search = :dns
+            end
+            Chef::Application.fatal!("#{search} must be set when :useip is #{options[:useip]}") if options[search].to_s.empty?
+            Chef::Application.fatal!(":port is required") if options[:port].to_s.empty?
+            Chef::Application.fatal!(":type must be a Chef::Zabbix::API:HostInterfaceType") unless options[:type].kind_of?(Chef::Zabbix::API::HostInterfaceType)
+          end
+
+          def symbolize(options)
+            symbolized = {}
+            options.each_key do |key|
+              symbolized[key.to_sym] = options[key]
+            end
+            symbolized
+          end
+      end
+
       class << self
+
         def find_hostgroup_ids(connection, hostgroup)
           group_id_request = {
             :method => "hostgroup.get",
@@ -67,6 +138,44 @@ class Chef
           connection.query(request)
         end
 
+        def find_lld_rule_ids(connection, template_id, key)
+          request = {
+            :method => "discoveryrule.get",
+            :params => {
+              :templated => true,
+              :templateids => template_id,
+              :search => {
+                :key_ => key
+              }
+            }
+          }
+          connection.query(request)
+        end
+
+        def find_trigger_ids(connection, description)
+          request = {
+            :method => "trigger.get",
+            :params => {
+              :search => {
+                :description => description
+              }
+            }
+          }
+          connection.query(request)
+        end
+
+        def find_trigger_prototype_ids(connection, description)
+          request = {
+            :method => "triggerprototype.get",
+            :params => {
+              :search => {
+                :description => description
+              }
+            }
+          }
+          connection.query(request)
+        end
+
         def find_item_ids(connection, template_id, key, name=nil)
           request = {
             :method => "item.get",
@@ -86,116 +195,58 @@ class Chef
           connection.query(request)
         end
 
-        def find_graph_ids(connection, template_id, name)
+        def find_item_prototype_ids(connection, template_id, key, discovery_rule_id=nil)
           request = {
-            :method => "graph.get",
+            :method => "itemprototype.get",
             :params => {
-              :filter => {
-                :name => name
-              },
+              :templateids => template_id,
               :search => {
-                :hostid => template_id
+                :key_ => key
+              }
+            }
+          }
+          if discovery_rule_id
+            request[:params][:discoveryids] = discovery_rule_id
+          end
+          connection.query(request)
+        end
+
+        def find_item_ids_on_host(connection, host, key) 
+          request = {
+            :method => "item.get",
+            :params => {
+              :host => host,
+              :search => {
+                :key_ => key
               }
             }
           }
           connection.query(request)
         end
-      end
 
-      module  Enumeration
-        class << self
-          def included(base)
-            base.extend(ClassMethods)
-            base.send(:include, ClassMethods)
-          end 
-
-          def extended(base)
-            base.send(:include, ClassMethods)
-          end 
-        end 
-
-        module ClassMethods
-          attr_reader :enumeration_values
-          def enum(name, val)
-            @enumeration_values ||= {}
-            @enumeration_values[name] ||= new(val)
-            define_singleton_method(name) do
-              @enumeration_values[name]
-            end
-          end
+        def find_graph_ids(connection, name)
+          request = {
+            :method => "graph.get",
+            :params => {
+              :filter => {
+                :name => name
+              }
+            }
+          }
+          connection.query(request)
         end
 
-        attr_reader :value
-        def initialize(value)
-          @value = value
-        end 
-      end 
-
-      class ItemType
-        include Enumeration
-        enum :agent,            0
-        enum :snmp_v1,          1
-        enum :trapper,          2
-        enum :simple_check,     3
-        enum :snmp_v2,          4
-        enum :internal,         5
-        enum :snmp_v3,          6
-        enum :active_check,     7
-        enum :aggregate,        8
-        enum :http_test,        9
-        enum :external,         10
-        enum :database_monitor, 11
-        enum :ipmi,             12
-        enum :ssh,              13
-        enum :telnet,           14
-        enum :calculated,       15
-      end
-
-      class ItemValueType
-        include Enumeration
-        enum :float, 0
-        enum :character, 1
-        enum :log, 2
-        enum :unsigned, 3
-        enum :text, 4
-      end
-
-      class TriggerPriority
-        include Enumeration
-
-        enum :not_classified, 0 
-        enum :information, 1
-        enum :warning, 2
-        enum :average, 3
-        enum :high, 4
-        enum :disaster, 5
-      end
-
-      class TriggerStatus
-        include Enumeration
-        enum :active, 0
-        enum :disabled, 1
-      end
-
-      class TriggerType
-        include Enumeration
-        enum :normal, 0
-        enum :multiple, 1
-      end
-
-      class GraphItemCalcFunction
-        include Enumeration
-        enum :min,      1
-        enum :max,      2
-        enum :average,  4
-        enum :all,      7
-      end
-
-      class GraphItemType
-        include Enumeration
-        enum :simple,     0
-        enum :aggregated, 1
-        enum :graph,      2
+        def find_graph_prototype_ids(connection, name)
+          request = {
+            :method => "graphprototype.get",
+            :params => {
+              :filter => {
+                :name => name
+              }
+            }
+          }
+          connection.query(request)
+        end
       end
     end
   end
